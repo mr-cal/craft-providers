@@ -399,6 +399,7 @@ class BuilddBase(Base):
         self._setup_wait_for_network(
             executor=executor, deadline=deadline, retry_wait=retry_wait
         )
+        print("=================================")
         self._setup_apt(executor=executor, deadline=deadline)
         self._setup_snapd(executor=executor, deadline=deadline)
         self._setup_snapd_proxy(executor=executor, deadline=deadline)
