@@ -123,6 +123,8 @@ class LXDProvider(Provider):
         image_remote = configure_buildd_image_remote()
 
         try:
+            logger.debug(">>>>>>>>>>>>>>>>>>>")
+            logger.debug("begin: lxd.launch()")
             instance = launch(
                 name=instance_name,
                 base_configuration=base_configuration,
@@ -136,6 +138,8 @@ class LXDProvider(Provider):
                 project=self.lxd_project,
                 remote=self.lxd_remote,
             )
+            logger.debug("end: lxd.launch()")
+            logger.debug("<<<<<<<<<<<<<<<<<")
         except (BaseConfigurationError) as error:
             raise LXDError(str(error)) from error
 
