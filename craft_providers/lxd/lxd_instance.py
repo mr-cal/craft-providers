@@ -26,6 +26,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from typing import Any, Dict, List, Optional
 
 from craft_providers import errors
@@ -425,6 +426,25 @@ class LXDInstance(Executor):
 
         :raises LXDError: On unexpected error.
         """
+        logger.debug(f"Mounting {host_source=} to {target=}")
+        if self.remote == "local":
+            self.mount_local(host_source=host_source, target=target)
+        else:
+            self.mount_remote(host_source=host_source, target=target)
+
+    def mount_local(
+        self, *, host_source: pathlib.Path, target: pathlib.PurePath
+    ) -> None:
+        """Mount host source directory to target mount point for a local instance.
+
+        Checks first to see if already mounted.
+        The source will be mounted as a disk named "disk-{target.as_posix()}".
+
+        :param host_source: Host path to mount.
+        :param target: Instance path to mount to.
+
+        :raises LXDError: On unexpected error.
+        """
         if self.is_mounted(host_source=host_source, target=target):
             return
 
@@ -436,6 +456,55 @@ class LXDInstance(Executor):
             project=self.project,
             remote=self.remote,
         )
+        logger.debug("zzzzzzz")
+        #time.sleep(100000)
+
+    def mount_remote(
+        self, *, host_source: pathlib.Path, target: pathlib.PurePath
+    ) -> None:
+        if self.is_mounted(host_source=host_source, target=target):
+            return
+
+        # Pipes for sshfs and sftp-server to communicate
+        stdin1, stdout1 = os.pipe()
+        stdin2, stdout2 = os.pipe()
+        # XXX: This needs to be extended once we support other distros
+        try:
+            proc = subprocess.Popen(
+                ['/usr/lib/sftp-server'], stdin=stdin1, stdout=stdout2
+            )
+        except FileNotFoundError:
+            raise Exception(
+                'You must have openssh-sftp-server installed to use a LXD '
+                'remote on a different host.\n'
+            )
+        except subprocess.CalledProcessError:
+            raise Exception('sftp-server seems to be installed but could not be run.\n')
+
+        # Use sshfs in slave mode to reverse mount the destination
+        self.execute_run(['apt-get', 'install', '-y', 'sshfs'])
+        self.execute_run(['mkdir', '-p', str(target)])
+        self.execute_popen(
+            ['sshfs', '-o', 'slave', f':{host_source}', str(target)],
+            stdin=stdin2,
+            stdout=stdout1)
+
+        # It may take a second or two for sshfs to come up
+        retry_count = 5
+        while retry_count:
+            time.sleep(1)
+            if self.execute_run(['ls', str(target)], check=True):
+                logger.debug("zzzzzzzzzz")
+                #time.sleep(100000)
+                return
+            retry_count -= 1
+        raise Exception(
+            'The project folder could not be mounted.\n'
+            'Fuse must be enabled on the LXD host.\n'
+            'You can run the following command to enable it:\n'
+            'echo Y | sudo tee /sys/module/fuse/parameters/userns_mounts'
+        )
+
 
     def _host_supports_mknod(self) -> bool:
         """Check if host supports mknod in container.

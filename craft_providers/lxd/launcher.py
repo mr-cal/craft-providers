@@ -218,7 +218,8 @@ def _launch_existing_instance(
         return False
 
     if instance.is_running():
-        logger.warning("Instance exists and is running.")
+        logger.warning("Instance exists and is running. Stopping instance.")
+        instance.stop()
     else:
         logger.warning("Instance exists and is not running. Starting instance.")
         instance.start()
