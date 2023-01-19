@@ -19,6 +19,7 @@
 
 import logging
 from datetime import datetime, timedelta
+import os
 from typing import Optional
 
 from craft_providers import Base, ProviderError, bases
@@ -441,6 +442,25 @@ def launch(
         destination_instance_name=instance.instance_name,
         project=project,
     )
+
+    # configure the instance's raw.idmap
+    if map_user_uid:
+        if not uid:
+            uid = os.getuid()
+        lxc.config_set(
+            instance_name=instance.instance_name,
+            key="raw.idmap",
+            value=f"both {uid!s} 0",
+            project=project,
+            remote=remote,
+        )
+    else:
+        lxc.config_unset(
+            instance_name=instance.instance_name,
+            key="raw.idmap",
+            project=project,
+            remote=remote,
+        )
 
     # the newly copied instance should not be running, but check anyways
     if instance.is_running():
