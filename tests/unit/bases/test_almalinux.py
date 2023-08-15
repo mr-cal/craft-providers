@@ -17,7 +17,6 @@
 
 
 import subprocess
-from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
 from unittest.mock import ANY, call, patch
@@ -173,11 +172,6 @@ def test_setup(
     expected_tag,
 ):
     mock_load.return_value = InstanceConfiguration(compatibility_tag=expected_tag)
-
-    mock_datetime = mocker.patch("craft_providers.base.datetime")
-    mock_datetime.now.return_value = datetime(2022, 1, 2, 3, 4, 5, 6)
-    # expected datetime will be 24 hours after the current time
-    expected_datetime = "2022-01-03T03:04:05.000006"
 
     if environment is None:
         environment = almalinux.AlmaLinuxBase.default_command_environment()
@@ -339,15 +333,7 @@ def test_setup(
     fake_process.register_subprocess(
         [*DEFAULT_FAKE_CMD, "snap", "wait", "system", "seed.loaded"]
     )
-    fake_process.register_subprocess(
-        [
-            *DEFAULT_FAKE_CMD,
-            "snap",
-            "set",
-            "system",
-            f"refresh.hold={expected_datetime}Z",
-        ]
-    )
+    fake_process.register_subprocess([*DEFAULT_FAKE_CMD, "snap", "refresh", "--hold"])
     fake_process.register_subprocess(
         [*DEFAULT_FAKE_CMD, "snap", "watch", "--last=auto-refresh?"]
     )
@@ -843,73 +829,62 @@ def test_pre_setup_snapd_failures(
     )
 
 
-def test_setup_snapd_failures(mock_verify_network, fake_process, fake_executor):
+@pytest.mark.parametrize("fail_index", list(range(0, 7)))
+def test_setup_snapd_failures(
+    mock_verify_network, fail_index, fake_process, fake_executor
+):
+    """Catch errors from the `setup_snapd` step."""
+    return_codes = [0] * 7
+    return_codes[fail_index] = 1
     base_config = almalinux.AlmaLinuxBase(alias=almalinux.AlmaLinuxBaseAlias.NINE)
 
     fake_process.register_subprocess(
         [*DEFAULT_FAKE_CMD, "dnf", "install", "-y", "snapd"],
-        returncode=1,
-    )
-
-    with pytest.raises(BaseConfigurationError) as exc_info:
-        base_config._setup_snapd(executor=fake_executor)
-
-    assert exc_info.value == BaseConfigurationError(
-        brief="Failed to setup snapd.",
-        details=details_from_called_process_error(
-            exc_info.value.__cause__  # type: ignore
-        ),
-    )
-
-
-@pytest.mark.parametrize("fail_index", list(range(0, 8)))
-def test_post_setup_snapd_failures(
-    mock_verify_network, fake_process, fake_executor, fail_index, mocker
-):
-    base_config = almalinux.AlmaLinuxBase(alias=almalinux.AlmaLinuxBaseAlias.NINE)
-    mock_datetime = mocker.patch("craft_providers.base.datetime")
-    mock_datetime.now.return_value = datetime(2022, 1, 2, 3, 4, 5, 6)
-
-    return_codes = [0, 0, 0, 0, 0, 0, 0, 0]
-    return_codes[fail_index] = 1
-
-    fake_process.register_subprocess(
-        [*DEFAULT_FAKE_CMD, "ln", "-sf", "/var/lib/snapd/snap", "/snap"],
         returncode=return_codes[0],
     )
     fake_process.register_subprocess(
-        [*DEFAULT_FAKE_CMD, "systemctl", "enable", "--now", "snapd.socket"],
+        [*DEFAULT_FAKE_CMD, "ln", "-sf", "/var/lib/snapd/snap", "/snap"],
         returncode=return_codes[1],
     )
     fake_process.register_subprocess(
-        [*DEFAULT_FAKE_CMD, "systemctl", "restart", "snapd.service"],
+        [*DEFAULT_FAKE_CMD, "systemctl", "enable", "--now", "snapd.socket"],
         returncode=return_codes[2],
     )
     fake_process.register_subprocess(
-        [*DEFAULT_FAKE_CMD, "snap", "wait", "system", "seed.loaded"],
+        [*DEFAULT_FAKE_CMD, "systemctl", "restart", "snapd.service"],
         returncode=return_codes[3],
     )
     fake_process.register_subprocess(
-        [
-            *DEFAULT_FAKE_CMD,
-            "snap",
-            "set",
-            "system",
-            "refresh.hold=2022-01-03T03:04:05.000006Z",
-        ],
+        [*DEFAULT_FAKE_CMD, "snap", "wait", "system", "seed.loaded"],
         returncode=return_codes[4],
     )
     fake_process.register_subprocess(
-        [*DEFAULT_FAKE_CMD, "snap", "watch", "--last=auto-refresh?"],
+        [*DEFAULT_FAKE_CMD, "snap", "refresh", "--hold"],
         returncode=return_codes[5],
     )
     fake_process.register_subprocess(
-        [*DEFAULT_FAKE_CMD, "snap", "unset", "system", "proxy.http"],
+        [*DEFAULT_FAKE_CMD, "snap", "watch", "--last=auto-refresh?"],
         returncode=return_codes[6],
+    )
+
+    with pytest.raises(BaseConfigurationError):
+        base_config._setup_snapd(executor=fake_executor)
+
+
+@pytest.mark.parametrize("fail_index", list(range(0, 2)))
+def test_post_setup_snapd_failures(fake_process, fake_executor, fail_index, mocker):
+    base_config = almalinux.AlmaLinuxBase(alias=almalinux.AlmaLinuxBaseAlias.NINE)
+
+    return_codes = [0] * 2
+    return_codes[fail_index] = 1
+
+    fake_process.register_subprocess(
+        [*DEFAULT_FAKE_CMD, "snap", "unset", "system", "proxy.http"],
+        returncode=return_codes[0],
     )
     fake_process.register_subprocess(
         [*DEFAULT_FAKE_CMD, "snap", "unset", "system", "proxy.https"],
-        returncode=return_codes[7],
+        returncode=return_codes[1],
     )
 
     with pytest.raises(BaseConfigurationError):
@@ -1162,11 +1137,6 @@ def test_warmup_overall(environment, fake_process, fake_executor, mock_load, moc
     mock_load.return_value = InstanceConfiguration(
         compatibility_tag="almalinux-base-v1", setup=True
     )
-    mock_datetime = mocker.patch("craft_providers.base.datetime")
-    mock_datetime.now.return_value = datetime(2022, 1, 2, 3, 4, 5, 6)
-    # expected datetime will be 24 hours after the current time
-    expected_datetime = "2022-01-03T03:04:05.000006"
-
     alias = almalinux.AlmaLinuxBaseAlias.NINE
 
     if environment is None:
@@ -1191,15 +1161,7 @@ def test_warmup_overall(environment, fake_process, fake_executor, mock_load, moc
     fake_process.register_subprocess(
         [*DEFAULT_FAKE_CMD, "getent", "hosts", "snapcraft.io"]
     )
-    fake_process.register_subprocess(
-        [
-            *DEFAULT_FAKE_CMD,
-            "snap",
-            "set",
-            "system",
-            f"refresh.hold={expected_datetime}Z",
-        ]
-    )
+    fake_process.register_subprocess([*DEFAULT_FAKE_CMD, "snap", "refresh", "--hold"])
     fake_process.register_subprocess(
         [*DEFAULT_FAKE_CMD, "snap", "watch", "--last=auto-refresh?"]
     )
@@ -1627,8 +1589,7 @@ def test_disable_and_wait_for_snap_refresh_hold_error(fake_process, fake_executo
     """Raise BaseConfigurationError when the command to hold snap refreshes fails."""
     base_config = almalinux.AlmaLinuxBase(alias=almalinux.AlmaLinuxBaseAlias.NINE)
     fake_process.register_subprocess(
-        [*DEFAULT_FAKE_CMD, "snap", "set", "system", fake_process.any()],
-        returncode=-1,
+        [*DEFAULT_FAKE_CMD, "snap", "refresh", "--hold"], returncode=-1
     )
 
     with pytest.raises(BaseConfigurationError) as exc_info:
@@ -1645,9 +1606,7 @@ def test_disable_and_wait_for_snap_refresh_hold_error(fake_process, fake_executo
 def test_disable_and_wait_for_snap_refresh_wait_error(fake_process, fake_executor):
     """Raise BaseConfigurationError when the `snap watch` command fails."""
     base_config = almalinux.AlmaLinuxBase(alias=almalinux.AlmaLinuxBaseAlias.NINE)
-    fake_process.register_subprocess(
-        [*DEFAULT_FAKE_CMD, "snap", "set", "system", fake_process.any()],
-    )
+    fake_process.register_subprocess([*DEFAULT_FAKE_CMD, "snap", "refresh", "--hold"])
     fake_process.register_subprocess(
         [*DEFAULT_FAKE_CMD, "snap", "watch", "--last=auto-refresh?"],
         returncode=-1,

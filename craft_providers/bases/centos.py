@@ -227,6 +227,9 @@ class CentOSBase(Base):
                 details=details_from_called_process_error(error),
             ) from error
 
+        self._enable_snapd_service(executor=executor)
+        self._disable_and_wait_for_snap_refresh(executor=executor)
+
     def _clean_up(self, executor: Executor) -> None:
         """Clean up unused packages and cached package files."""
         self._execute_run(

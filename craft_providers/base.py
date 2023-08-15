@@ -28,7 +28,6 @@ import re
 import subprocess
 import sys
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
 from enum import Enum
 from textwrap import dedent
 from typing import Dict, List, Optional, Type, final
@@ -576,17 +575,19 @@ class Base(ABC):
     def _disable_and_wait_for_snap_refresh(self, executor: Executor) -> None:
         """Disable automatic snap refreshes and wait for refreshes to complete.
 
-        Craft-providers manages the installation and versions of snaps inside the
-        build environment, so automatic refreshes of snaps by snapd are disabled.
+        Automatic snap refreshes are disabled because craft-providers manages the
+        installation and versions of snaps inside the build environment.
+
+        :param executor: Executor for target container.
+
+        :raises BaseConfigurationError: if snap refreshes cannot be disabled or an
+        error occurs while waiting for pending refreshes to complete.
         """
-        # disable refresh for 1 day
-        hold_time = datetime.now() + timedelta(days=1)
         logger.debug("Holding refreshes for snaps.")
 
-        # TODO: run `snap refresh --hold` once during setup (`--hold` is not yet stable)
         try:
             executor.execute_run(
-                ["snap", "set", "system", f"refresh.hold={hold_time.isoformat()}Z"],
+                ["snap", "refresh", "--hold"],
                 capture_output=True,
                 check=True,
                 timeout=self._timeout_simple,
@@ -831,8 +832,6 @@ class Base(ABC):
 
         This step usually does not need to be overridden.
         """
-        self._enable_snapd_service(executor=executor)
-        self._disable_and_wait_for_snap_refresh(executor=executor)
         self._setup_snapd_proxy(executor=executor)
 
     def _pre_setup_snaps(self, executor: Executor) -> None:
